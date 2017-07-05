@@ -4,16 +4,23 @@ import sys
 
 import atari
 import atari_dqn
+import atari_dqrn
 import dq_learner
 import numpy as np
 import tqdm
-
+from argparse import ArgumentParser
 
 num_steps = 50000000
 test_interval = 250000
 test_frames = 125000
 game_dir = '../roms'
 
+def parse(args):
+    parser = ArgumentParser()
+    parser.add_argument("--game", help="game ROM file to use")
+    parser.add_argument("--dqn", help="network + learner architecture", choices=['dqn', 'double_dqn', 'dqrn', 'double_dqrn'])
+    parser.add_argument("--results", help="result directory location")
+    return parser.parse_args(args)
 
 def evaluate_agent_reward(steps, env, agent, epsilon):
     env.terminate_on_end_life = False
@@ -38,11 +45,11 @@ def evaluate_agent_reward(steps, env, agent, epsilon):
     return episode_rewards
 
 
-def train(agent, env, test_epsilon, results_dir):
+def train(agent, env, test_epsilon, results_dir, game):
     # open results file
-    results_fn = '%s/%s_results.txt' % (results_dir, game)
     if not os.path.isdir(results_dir):
         os.makedirs(results_dir)
+    results_fn = "{}/{}_results.txt".format(results_dir, game)
     results_file = open(results_fn, 'w')
 
     step_num = 0
@@ -75,21 +82,16 @@ def train(agent, env, test_epsilon, results_dir):
             results_file.write('Step: %d -- Mean reward: %.2f\n' % (step_num, mean_reward))
             results_file.flush()
 
-
-def train_dqn(env, num_actions):
-    results_dir = './results/dqn/' + game
-
+def train_dqn(env, num_actions, results_dir, game):
     training_epsilon = 0.1
     test_epsilon = 0.05
 
     frame_history = 4
     dqn = atari_dqn.AtariDQN(frame_history, num_actions, shared_bias=False)
     agent = dq_learner.DQLearner(dqn, num_actions, target_copy_freq=10000, epsilon_end=training_epsilon, double=False, frame_history=frame_history)
-    train(agent, env, test_epsilon, results_dir)
+    train(agent, env, test_epsilon, results_dir, game)
 
-
-def train_double_dqn(env, num_actions):
-    results_dir = './results/double_dqn/' + game
+def train_double_dqn(env, num_actions,results_dir, game):
 
     training_epsilon = 0.01
     test_epsilon = 0.001
@@ -98,19 +100,48 @@ def train_double_dqn(env, num_actions):
     dqn = atari_dqn.AtariDQN(frame_history, num_actions)
     agent = dq_learner.DQLearner(dqn, num_actions, frame_history=frame_history, epsilon_end=training_epsilon)
 
-    train(agent, env, test_epsilon, results_dir)
+    train(agent, env, test_epsilon, results_dir, game)
 
-def setup_atari_env():
+#TODO: hyperparameter tuning probably
+def train_dqrn(env, num_actions, results_dir, game):
+
+    training_epsilon = 0.1
+    test_epsilon = 0.05
+
+    frame_history = 4
+    dqn = atari_dqrn.AtariDQRN(frame_history, num_actions, shared_bias=False, append_conv_output=False)
+    agent = dq_learner.DQLearner(dqn, num_actions, target_copy_freq=10000, epsilon_end=training_epsilon, double=False, frame_history=frame_history)
+    train(agent, env, test_epsilon, results_dir, game)
+
+def train_double_dqrn(env, num_actions, results_dir, game):
+
+    training_epsilon = 0.01
+    test_epsilon = 0.001
+
+    frame_history = 4
+    dqn = atari_dqrn.AtariDQRN(frame_history, num_actions, shared_bias=False, append_conv_output=False)
+    agent = dq_learner.DQLearner(dqn, num_actions, target_copy_freq=10000, epsilon_end=training_epsilon, double=False, frame_history=frame_history)
+    train(agent, env, test_epsilon, results_dir,game)
+
+def setup_atari_env(game_location):
     # create Atari environment
-    env = atari.AtariEnvironment(game_dir + '/' + game + '.bin')
+    env = atari.AtariEnvironment(game_location)
     num_actions = len(env.ale.getMinimalActionSet())
     return env, num_actions
 
+def run(args):
+    #input parsing for saving convenience
+    #TODO: figure out best argument structure
+    game_name = os.path.splitext(os.path.basename(args.game))[0]
+    env, num_actions = setup_atari_env(args.game)
+    if args.dqn == "dqn":
+        train_dqn(env, num_actions, args.results, game_name)
+    elif args.dqn == 'double_dqn':
+        train_double_dqn(env, num_actions, args.results, game_name)
+    elif args.dqn == "dqrn":
+        train_dqrn(env, num_actions, args.results, game_name)
+    elif args.dqn == 'double_dqrn':
+        train_double_dqrn(env, num_actions, args.results, game_name)
 
-try:
-    game = sys.argv[1]
-except:
-    print "Usage:", sys.argv[0], "<game>"
-    sys.exit()
-train_dqn(*setup_atari_env())
-# train_double_dqn(*setup_coin_env())
+if __name__=="__main__":
+    run(parse(sys.argv[1:]))

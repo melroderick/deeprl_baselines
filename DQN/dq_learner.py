@@ -12,6 +12,7 @@ class DQLearner(interfaces.LearningAgent):
                  update_freq=4, target_copy_freq=30000, replay_memory_size=1000000,
                  frame_history=4, batch_size=32, error_clip=1, restore_network_file=None, double=True):
         self.dqn = dqn
+        #don't allow growth?
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
