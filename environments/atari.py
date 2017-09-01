@@ -3,15 +3,15 @@ import datetime
 import os
 
 import cv2
-import interfaces
+import dqn.interfaces
 import numpy as np
 import pygame
 from ale_python_interface import ALEInterface
 
-class AtariEnvironment(interfaces.Environment):
+class AtariEnvironment(dqn.interfaces.Environment):
 
     def __init__(self, atari_rom, frame_skip=4, noop_max=30, terminate_on_end_life=False, random_seed=123,
-                 frame_history_length=4, use_gui=False, max_num_frames=500000):
+                 frame_history_length=4, use_gui=False, max_num_frames=500000, repeat_action_probability=0.0):
         self.ale = ALEInterface()
         self.ale.setInt('random_seed', random_seed)
         self.ale.setInt('frame_skip', 1)
@@ -19,10 +19,13 @@ class AtariEnvironment(interfaces.Environment):
         self.ale.setInt('max_num_frames_per_episode', max_num_frames)
         self.ale.loadROM(atari_rom)
         self.frame_skip = frame_skip
+        self.repeat_action_probability = repeat_action_probability
         self.noop_max = noop_max
         self.terminate_on_end_life = terminate_on_end_life
         self.current_lives = self.ale.lives()
         self.is_terminal = False
+        self.previous_action = 0
+        self.num_actions = len(self.ale.getMinimalActionSet())
 
         w, h = self.ale.getScreenDims()
         self.screen_width = w
@@ -54,6 +57,10 @@ class AtariEnvironment(interfaces.Environment):
         return image
 
     def perform_action(self, onehot_index_action):
+        if self.repeat_action_probability > 0:
+            if np.random.uniform() < self.repeat_action_probability:
+                onehot_index_action = self.previous_action
+            self.previous_action = onehot_index_action
         action = self.onehot_to_atari[onehot_index_action]
         state, action, reward, next_state, self.is_terminal = self.perform_atari_action(action)
         return state, onehot_index_action, reward, next_state, self.is_terminal
@@ -90,7 +97,8 @@ class AtariEnvironment(interfaces.Environment):
         return reward
 
     def get_current_state(self):
-        return copy.copy(self.frame_history)
+        #return copy.copy(self.frame_history)
+        return [x.copy() for x in self.frame_history]
 
     def get_actions_for_state(self, state):
         return [self.atari_to_onehot[a] for a in self.ale.getMinimalActionSet()]
@@ -110,8 +118,12 @@ class AtariEnvironment(interfaces.Environment):
             num_noops = np.random.randint(self.noop_max + 1)
             self._act(0, num_noops)
 
+        self.previous_action = 0
         self.frame_history = copy.copy(self.zero_history_frames)
         self.frame_history[-1] = np.max(self.last_two_frames, axis=0)
+
+        if self.use_gui:
+            self.refresh_gui()
 
     def is_current_state_terminal(self):
         return self.is_terminal
@@ -128,44 +140,3 @@ class AtariEnvironment(interfaces.Environment):
 
             pygame.surfarray.blit_array(self.gui_screen, gui_image)
             pygame.display.update()
-
-
-def get_action_from_user(action_mapping, special_actions):
-    while True:
-        action = raw_input('Action: ')
-        if action in special_actions:
-            return (action, None)
-        try:
-            action, mapped_action = action, action_mapping[action]
-            return (action, mapped_action)
-        except KeyError:
-            pass
-
-def handle_special_actions(data, game, action_mapping, action_recording, action):
-    if action == 'run_recording':
-        file_name = raw_input('Recording File: ')
-        recording = [int(x) for x in open(file_name, 'r').readlines()]
-        for action in recording:
-            game.perform_action(action)
-            action_recording.append(action)
-    elif action == 'set_savefile':
-        file_name = raw_input('Recording File: ')
-        data['savefile'] = file_name
-    elif action == 'save':
-        with open(data['savefile'], 'w') as f:
-            for a in action_recording:
-                f.write(str(a)+'\n')
-    elif action == 'restore':
-        game.reset_environment()
-        with open(data['savefile'], 'r') as f:
-            del action_recording[:]
-            recording = [int(x) for x in open(data['savefile'], 'r').readlines()]
-            for action in recording:
-                game.perform_action(action)
-                action_recording.append(action)
-    elif action == 'screenshot':
-        name = raw_input('Name:')
-        path = os.path.join(data['screenshot_dir'], name) + '.png'
-        print path
-        state = game.get_current_state()[-1]
-        cv2.imwrite(path, state)
